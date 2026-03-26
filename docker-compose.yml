@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+
+  # ── Mock honeypot target (Cowrie SSH) ──────────────────────
+  cowrie:
+    image: cowrie/cowrie:latest
+    container_name: redops_cowrie
+    ports:
+      - "2222:2222" # SSH honeypot
+      - "2223:2223" # Telnet honeypot
+    environment:
+      - COWRIE_TELNET_ENABLED=yes
+    volumes:
+      - cowrie_logs:/cowrie/var/log/cowrie
+    networks:
+      redops_net:
+        ipv4_address: 172.20.0.10
+    # Hard network isolation — no internet egress from honeypot
+    sysctls:
+      - net.ipv4.conf.all.forwarding=0
+
+  # ── Redis (campaign state store) ──────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redops_redis
+    ports:
+      - "6379:6379"
+    networks:
+      redops_net:
+        ipv4_address: 172.20.0.20
+
+  # ── RedOps API ─────────────────────────────────────────────
+  redops:
+    build: .
+    container_name: redops_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./redops.db
+      - REDIS_URL=redis://redis:6379/0
+      - MOCK_HONEYPOT_HOST=172.20.0.10
+      - MOCK_HONEYPOT_SSH_PORT=2222
+      - TARGET_ALLOWLIST=136.112.225.237,172.20.0.10,172.20.0.0/24
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - cowrie
+    networks:
+      redops_net:
+        ipv4_address: 172.20.0.30
+
+networks:
+  redops_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  cowrie_logs:

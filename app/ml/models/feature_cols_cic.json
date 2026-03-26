@@ -1,0 +1,1 @@
+["dst_port", "src_port", "hour", "day_of_week", "dst_port_bucket", "src_port_bucket", "inter_arrival_sec", "conn_count", "port_entropy", "proto_diversity", "is_tcp", "is_udp", "is_icmp", "flag_syn", "flag_ack", "flag_rst", "flag_fin", "flag_psh", "is_syn_scan", "data_len", "frame_len", "ttl"]

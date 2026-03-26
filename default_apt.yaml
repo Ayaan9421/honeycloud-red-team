@@ -1,0 +1,40 @@
+name: default_apt
+description: "Full 6-stage APT simulation — fingerprint through exfil."
+abort_on_detection: false
+
+stages:
+  - name: fingerprint
+    enabled: true
+    dwell_min: 1.0
+    dwell_max: 2.0
+
+  - name: port_scan
+    enabled: true
+    dwell_min: 1.5
+    dwell_max: 3.0
+
+  - name: banner_grab
+    enabled: true
+    dwell_min: 1.0
+    dwell_max: 2.0
+
+  - name: ssh_brute
+    enabled: true
+    dwell_min: 3.0
+    dwell_max: 8.0
+    max_attempts: 8
+
+  - name: ssh_exec
+    enabled: true
+    dwell_min: 2.0
+    dwell_max: 5.0
+
+  - name: exfil
+    enabled: true
+    dwell_min: 1.0
+    dwell_max: 3.0
+
+credentials:
+  root:  ["root", "toor", "password", "123456"]
+  admin: ["admin", "admin123", "password"]
+  pi:    ["raspberry", "pi"]

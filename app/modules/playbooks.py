@@ -5,11 +5,13 @@ Loads YAML campaign playbooks from the /campaigns directory.
 Each playbook defines the stage sequence, dwell times, abort conditions,
 and credential sets for the campaign.
 
-Default playbook is always available without a file (built-in).
+Changes in this version:
+  • StageConfig gains optional nmap_profile field.
+  • All built-in playbooks now include nmap_scan stage after fingerprint.
+  • nmap_profile varies by playbook: aggressive for default, stealth for stealth_apt.
 """
-import os
-import yaml
 import logging
+import yaml
 from dataclasses import dataclass, field
 from typing import List, Optional
 from pathlib import Path
@@ -18,14 +20,16 @@ log = logging.getLogger("redops.playbooks")
 
 PLAYBOOKS_DIR = Path("campaigns")
 
+
 # ── Stage config ───────────────────────────────────────────
 @dataclass
 class StageConfig:
-    name:       str
-    enabled:    bool  = True
-    dwell_min:  float = 2.0    # seconds before next stage
-    dwell_max:  float = 8.0
-    max_attempts: int = 10     # for brute-force stages
+    name:         str
+    enabled:      bool  = True
+    dwell_min:    float = 2.0
+    dwell_max:    float = 8.0
+    max_attempts: int   = 10
+    nmap_profile: str   = "standard"   # used only by nmap_scan stage
 
 
 # ── Full playbook ──────────────────────────────────────────
@@ -34,19 +38,19 @@ class Playbook:
     name:        str
     description: str
     stages:      List[StageConfig] = field(default_factory=list)
-    credentials: dict = field(default_factory=dict)   # {username: [passwords]}
-    abort_on_detection: bool = False   # stop campaign if honeypot detected early
+    credentials: dict = field(default_factory=dict)
+    abort_on_detection: bool = False
 
 
-# ── Built-in default playbook ──────────────────────────────
+# ── Built-in playbooks ─────────────────────────────────────
 DEFAULT_PLAYBOOK = Playbook(
     name="default_apt",
-    description="Full 6-stage APT simulation — fingerprint through exfil.",
+    description="Full 7-stage APT simulation — fingerprint + nmap through exfil.",
     stages=[
         StageConfig("fingerprint", dwell_min=1.0, dwell_max=2.0),
-        StageConfig("port_scan",   dwell_min=1.5, dwell_max=3.0),
+        StageConfig("nmap_scan",   dwell_min=2.0, dwell_max=4.0,  nmap_profile="honeypot"),
         StageConfig("banner_grab", dwell_min=1.0, dwell_max=2.0),
-        StageConfig("ssh_brute",   dwell_min=3.0, dwell_max=8.0, max_attempts=8),
+        StageConfig("ssh_brute",   dwell_min=3.0, dwell_max=8.0,  max_attempts=8),
         StageConfig("ssh_exec",    dwell_min=2.0, dwell_max=5.0),
         StageConfig("exfil",       dwell_min=1.0, dwell_max=3.0),
     ],
@@ -60,10 +64,10 @@ DEFAULT_PLAYBOOK = Playbook(
 
 STEALTH_PLAYBOOK = Playbook(
     name="stealth_apt",
-    description="Slow, patient campaign with extra dwell time — hardest to detect.",
+    description="Slow, patient campaign — stealth nmap + maximum dwell times.",
     stages=[
         StageConfig("fingerprint", dwell_min=5.0,  dwell_max=15.0),
-        StageConfig("port_scan",   dwell_min=10.0, dwell_max=30.0),
+        StageConfig("nmap_scan",   dwell_min=10.0, dwell_max=30.0, nmap_profile="stealth"),
         StageConfig("banner_grab", dwell_min=5.0,  dwell_max=10.0),
         StageConfig("ssh_brute",   dwell_min=30.0, dwell_max=90.0, max_attempts=5),
         StageConfig("ssh_exec",    dwell_min=15.0, dwell_max=40.0),
@@ -76,11 +80,41 @@ STEALTH_PLAYBOOK = Playbook(
     abort_on_detection=False,
 )
 
-FINGERPRINT_ONLY_PLAYBOOK = Playbook(
-    name="fingerprint_only",
-    description="Only runs the fingerprint stage — non-invasive recon.",
+AGGRESSIVE_PLAYBOOK = Playbook(
+    name="aggressive_apt",
+    description="Fast aggressive campaign — full nmap OS + script scan, rapid brute.",
     stages=[
         StageConfig("fingerprint", dwell_min=0.5, dwell_max=1.0),
+        StageConfig("nmap_scan",   dwell_min=1.0, dwell_max=2.0,  nmap_profile="aggressive"),
+        StageConfig("banner_grab", dwell_min=0.5, dwell_max=1.0),
+        StageConfig("ssh_brute",   dwell_min=1.0, dwell_max=3.0,  max_attempts=15),
+        StageConfig("ssh_exec",    dwell_min=1.0, dwell_max=2.0),
+        StageConfig("exfil",       dwell_min=0.5, dwell_max=1.0),
+    ],
+    credentials={
+        "root":  ["root", "toor", "password", "123456", "admin"],
+        "admin": ["admin", "admin123", "password", "1234"],
+        "pi":    ["raspberry", "pi"],
+        "user":  ["user", "password"],
+    },
+    abort_on_detection=False,
+)
+
+FINGERPRINT_ONLY_PLAYBOOK = Playbook(
+    name="fingerprint_only",
+    description="Only runs fingerprint + nmap — non-invasive recon.",
+    stages=[
+        StageConfig("fingerprint", dwell_min=0.5, dwell_max=1.0),
+        StageConfig("nmap_scan",   dwell_min=0.5, dwell_max=1.0, nmap_profile="honeypot"),
+    ],
+    abort_on_detection=False,
+)
+
+NMAP_ONLY_PLAYBOOK = Playbook(
+    name="nmap_only",
+    description="Pure nmap scan — no SSH interaction. Safe recon playbook.",
+    stages=[
+        StageConfig("nmap_scan", dwell_min=0.5, dwell_max=1.0, nmap_profile="aggressive"),
     ],
     abort_on_detection=False,
 )
@@ -88,21 +122,17 @@ FINGERPRINT_ONLY_PLAYBOOK = Playbook(
 _BUILTIN: dict[str, Playbook] = {
     "default_apt":      DEFAULT_PLAYBOOK,
     "stealth_apt":      STEALTH_PLAYBOOK,
+    "aggressive_apt":   AGGRESSIVE_PLAYBOOK,
     "fingerprint_only": FINGERPRINT_ONLY_PLAYBOOK,
+    "nmap_only":        NMAP_ONLY_PLAYBOOK,
 }
 
 
 def load_playbook(name: str) -> Playbook:
-    """
-    Load a playbook by name.
-    Checks built-ins first, then looks for a YAML file in /campaigns.
-    """
-    # Check built-ins
     if name in _BUILTIN:
         log.debug("Using built-in playbook: %s", name)
         return _BUILTIN[name]
 
-    # Try YAML file
     yaml_path = PLAYBOOKS_DIR / f"{name}.yaml"
     if yaml_path.exists():
         try:
@@ -115,17 +145,15 @@ def load_playbook(name: str) -> Playbook:
 
 
 def list_playbooks() -> List[dict]:
-    """List all available playbooks (built-ins + YAML files)."""
     available = []
-
     for name, pb in _BUILTIN.items():
         available.append({
             "name":        name,
             "description": pb.description,
-            "stages":      len(pb.stages),
+            "stages":      [s.name for s in pb.stages],
+            "stage_count": len(pb.stages),
             "source":      "builtin",
         })
-
     if PLAYBOOKS_DIR.exists():
         for yaml_file in PLAYBOOKS_DIR.glob("*.yaml"):
             pb_name = yaml_file.stem
@@ -133,10 +161,10 @@ def list_playbooks() -> List[dict]:
                 available.append({
                     "name":        pb_name,
                     "description": f"Custom playbook from {yaml_file.name}",
-                    "stages":      "?",
+                    "stages":      [],
+                    "stage_count": "?",
                     "source":      "yaml",
                 })
-
     return available
 
 
@@ -151,6 +179,7 @@ def _load_yaml(path: Path) -> Playbook:
             dwell_min=s.get("dwell_min", 2.0),
             dwell_max=s.get("dwell_max", 8.0),
             max_attempts=s.get("max_attempts", 10),
+            nmap_profile=s.get("nmap_profile", "standard"),
         )
         for s in data.get("stages", [])
     ]

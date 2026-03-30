@@ -25,6 +25,8 @@ from app.api.campaigns   import router as campaigns_router
 from app.api.fingerprint import router as fingerprint_router
 from app.api.ml          import router as ml_router
 from app.api.health      import router as health_router
+from app.api.tools import router as tools_router
+from app.api.exploits import router as exploits_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -79,8 +81,9 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(fingerprint_router)
 app.include_router(campaigns_router)
+app.include_router(tools_router)
+app.include_router(exploits_router)
 app.include_router(ml_router)
-
 
 # ── Playbooks listing (lightweight, no router needed) ──────
 @app.get("/api/playbooks", tags=["Campaigns"])

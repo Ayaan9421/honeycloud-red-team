@@ -1,0 +1,69 @@
+# nmap_profiles.yaml
+# ──────────────────
+# Defines all nmap scan profiles used by HoneyCloud campaigns.
+# Edit this file to add, remove, or tweak profiles — no code change needed.
+#
+# Fields per profile:
+#   args          : raw nmap argument string passed to PortScanner.scan()
+#   description   : human-readable label shown in the API
+#   needs_root    : whether the scan requires root/admin privileges
+#   ports         : port list/range string passed to nmap -p  (can be omitted
+#                   to let the args string control ports itself)
+#   timeout_sec   : max seconds to wait before giving up (default 120)
+#
+# Supported port string formats (identical to nmap -p syntax):
+#   "22,80,443"          — discrete ports
+#   "1-1024"             — range
+#   "22,80,8000-8100"    — mixed
+#   ""  or omit field    — let nmap args decide (e.g. --top-ports 100)
+
+profiles:
+
+  stealth:
+    args: "-sS -sV --version-intensity 2 -T2 -n --open"
+    description: "SYN stealth scan — low noise, minimal footprint. Needs Npcap/root."
+    needs_root: true
+    ports: "21,22,23,25,53,80,110,143,443,445,993,995,2222,2223,3306,3389,5432,6379,8080,8443,9090"
+    timeout_sec: 180
+
+  standard:
+    args: "-sT -sV --version-intensity 3 -T3 -n --open"
+    description: "TCP connect scan — reliable on Windows without Npcap."
+    needs_root: false
+    ports: "21,22,23,25,53,80,110,143,443,445,993,995,2222,2223,3306,3389,5432,6379,8080,8443,9090"
+    timeout_sec: 120
+
+  aggressive:
+    args: "-sT -sV -sC -O --version-intensity 5 -T4 -n --open"
+    description: "Full scan — OS detection, NSE scripts, banner grab, version."
+    needs_root: false
+    ports: "1-65535"
+    timeout_sec: 300
+
+  honeypot:
+    args: "-sT -sV --version-intensity 4 -T3 -n --open"
+    description: "Honeypot-focused — ports that deception systems typically expose."
+    needs_root: false
+    ports: "21,22,23,80,443,2222,2223,8080,8443,9090,3306,5432,6379"
+    timeout_sec: 60
+
+  quick:
+    args: "-sT --top-ports 100 -T4 -n --open"
+    description: "Fast top-100 port sweep — good for initial recon."
+    needs_root: false
+    ports: ""
+    timeout_sec: 30
+
+  udp:
+    args: "-sU -sV --version-intensity 2 -T3 --open"
+    description: "UDP service discovery — DNS, SNMP, NTP, TFTP."
+    needs_root: true
+    ports: "53,67,68,69,123,161,162,500,514,1900,5353"
+    timeout_sec: 180
+
+  os_detect:
+    args: "-sT -O --osscan-guess -T3 -n"
+    description: "OS fingerprinting with aggressive guess — identifies honeypot OS stack."
+    needs_root: false
+    ports: "22,80,443,2222"
+    timeout_sec: 90

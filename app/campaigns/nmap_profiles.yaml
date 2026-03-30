@@ -1,0 +1,111 @@
+# nmap_profiles.yaml
+# ══════════════════════════════════════════════════════════════════════════════
+# Single source of truth for all nmap scan profiles used by HoneyCloud.
+#
+# To add a new profile:  add an entry under `profiles:` and restart (or just
+#                         call the API — profiles are re-read on every request).
+# To tune a profile:     edit args / ports / timeout_sec and save.  No restart.
+# To disable a profile:  delete or rename the entry.
+#
+# ── Fields ───────────────────────────────────────────────────────────────────
+#
+#   args          Raw nmap argument string passed directly to python-nmap.
+#                 Any valid nmap flag works here.
+#
+#   description   Human-readable label shown in GET /api/tools/scan/profiles.
+#
+#   needs_root    Whether this profile requires administrator / root privileges.
+#                 On Windows: needs Npcap installed + running as Administrator.
+#                 On Linux:   needs sudo / CAP_NET_RAW.
+#
+#   ports         nmap-style port specification string (-p value).
+#                 Formats:   "22,80,443"          discrete
+#                            "1-1024"             range
+#                            "22,80,8000-8100"    mixed
+#                            ""  (empty / omit)   let nmap args decide
+#                                                 (e.g.  --top-ports N)
+#
+#   timeout_sec   Maximum seconds before the scan is abandoned.
+#                 Larger port ranges need longer timeouts.
+#
+# ── Notes on Windows without Npcap ───────────────────────────────────────────
+# SYN scans (-sS) and UDP scans (-sU) require raw-socket access.
+# On Windows you need Npcap (https://nmap.org/npcap/) installed.
+# Profiles marked needs_root: true fall back to the async TCP scanner
+# automatically if python-nmap or nmap itself is unavailable.
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+profiles:
+
+  # ── Stealth ────────────────────────────────────────────────────────────────
+  stealth:
+    description: "SYN stealth scan — low noise, slow timing. Requires Npcap/root."
+    args: "-sS -sV --version-intensity 2 -T2 -n --open"
+    needs_root: true
+    ports: "21,22,23,25,53,80,110,143,443,445,993,995,2222,2223,3306,3389,5432,6379,8080,8443,9090"
+    timeout_sec: 180
+
+  # ── Standard ───────────────────────────────────────────────────────────────
+  standard:
+    description: "TCP connect scan — works on Windows without Npcap or root."
+    args: "-sT -sV --version-intensity 3 -T3 -n --open"
+    needs_root: false
+    ports: "21,22,23,25,53,80,110,143,443,445,993,995,2222,2223,3306,3389,5432,6379,8080,8443,9090"
+    timeout_sec: 120
+
+  # ── Aggressive ─────────────────────────────────────────────────────────────
+  aggressive:
+    description: "Full scan — OS detection, NSE scripts, version info. Slow but thorough."
+    args: "-sT -sV -sC -O --version-intensity 5 -T4 -n --open"
+    needs_root: false
+    ports: "1-65535"
+    timeout_sec: 600
+
+  # ── Honeypot ───────────────────────────────────────────────────────────────
+  honeypot:
+    description: "Honeypot-focused — ports that Cowrie and common deception systems expose."
+    args: "-sT -sV --version-intensity 4 -T3 -n --open"
+    needs_root: false
+    ports: "21,22,23,80,443,2222,2223,8080,8443,9090,3306,5432,6379"
+    timeout_sec: 60
+
+  # ── Quick ──────────────────────────────────────────────────────────────────
+  quick:
+    description: "Top-100 port sweep — fast initial recon, no version detection."
+    args: "-sT --top-ports 100 -T4 -n --open"
+    needs_root: false
+    ports: ""         # empty = let --top-ports 100 decide
+    timeout_sec: 30
+
+  # ── UDP services ───────────────────────────────────────────────────────────
+  udp:
+    description: "UDP service discovery — DNS, SNMP, NTP, TFTP, mDNS."
+    args: "-sU -sV --version-intensity 2 -T3 --open"
+    needs_root: true
+    ports: "53,67,68,69,123,161,162,500,514,1900,5353"
+    timeout_sec: 180
+
+  # ── OS detection ───────────────────────────────────────────────────────────
+  os_detect:
+    description: "OS fingerprinting with aggressive guess — identifies honeypot OS stack."
+    args: "-sT -O --osscan-guess -T3 -n"
+    needs_root: false
+    ports: "22,80,443,2222"
+    timeout_sec: 90
+
+  # ── Light version scan ─────────────────────────────────────────────────────
+  version_light:
+    description: "Version detection only on the most common service ports — balanced speed/depth."
+    args: "-sT -sV --version-intensity 6 -T3 -n --open"
+    needs_root: false
+    ports: "21,22,23,25,80,443,2222,3306,8080"
+    timeout_sec: 60
+
+  # ── Script scan ────────────────────────────────────────────────────────────
+  script:
+    description: "NSE default scripts on honeypot ports — checks for known vulnerabilities and banners."
+    args: "-sT -sV -sC --script=banner,ssh-hostkey,http-headers -T3 -n --open"
+    needs_root: false
+    ports: "22,80,443,2222,8080,8443"
+    timeout_sec: 120

@@ -77,12 +77,15 @@ async def create_campaign(
     db.add(campaign)
     await db.flush()  # assigns campaign.id without committing
 
-    # ── Create stage records ──────────────────────────────────
-    stage_names = ["fingerprint", "port_scan", "banner_grab", "ssh_brute", "ssh_exec", "exfil"]
-    for i, name in enumerate(stage_names):
+    # ── Create stage records from playbook ────────────────────
+    from app.modules.playbooks import load_playbook
+    playbook = load_playbook(payload.playbook_name)
+    playbook_stages = [s for s in playbook.stages if s.enabled]
+
+    for i, stage_cfg in enumerate(playbook_stages):
         db.add(CampaignStage(
             campaign_id=campaign.id,
-            stage_name=name,
+            stage_name=stage_cfg.name,
             stage_order=i,
             status="pending",
         ))
@@ -124,6 +127,17 @@ async def list_campaigns(
                 detail=f"Invalid status '{status}'. "
                        f"Valid: pending, running, paused, completed, aborted"
             )
+    result = await db.execute(q)
+    return result.scalars().all()
+
+
+@router.get("/events", response_model=List[AttackEventOut])
+async def list_all_events(
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch all attack events from all campaigns, newest first."""
+    q = select(AttackEvent).order_by(AttackEvent.timestamp.desc()).limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
 
@@ -209,19 +223,47 @@ async def get_report(campaign_id: str, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.delete("/{campaign_id}", status_code=204)
+@router.post("/{campaign_id}/abort", status_code=200)
 async def abort_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
     )
     campaign = result.scalar_one_or_none()
+
     if not campaign:
-        raise HTTPException(status_code=404, detail=f"Campaign '{campaign_id}' not found")
+        raise HTTPException(404, f"Campaign '{campaign_id}' not found")
+
     if campaign.status not in (CampaignStatus.PENDING, CampaignStatus.RUNNING):
         raise HTTPException(
-            status_code=409,
-            detail=f"Cannot abort campaign in '{campaign.status.value}' state."
+            409,
+            f"Cannot abort campaign in '{campaign.status.value}' state."
         )
+
     campaign.status = CampaignStatus.ABORTED
     await db.commit()
+
     log.info("Campaign %s aborted", campaign_id[:8])
+    return {"status": "aborted"}
+
+
+@router.delete("/{campaign_id}", status_code=204)
+async def delete_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id)
+    )
+    campaign = result.scalar_one_or_none()
+
+    if not campaign:
+        raise HTTPException(404, f"Campaign '{campaign_id}' not found")
+
+    # Optional safety: block delete while running
+    if campaign.status == CampaignStatus.RUNNING:
+        raise HTTPException(
+            409,
+            "Cannot delete a running campaign. Abort it first."
+        )
+
+    await db.delete(campaign)
+    await db.commit()
+
+    log.warning("Campaign %s permanently deleted", campaign_id[:8])

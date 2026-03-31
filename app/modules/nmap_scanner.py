@@ -161,7 +161,7 @@ def get_profile(name: str) -> dict:
         return profiles["standard"]
     # Last-resort inline default (never hardcoded ports — minimal args only)
     return {
-        "args":        "-sT -T3 -n --open",
+        "args":        "-sT -T3 -n",
         "description": "Emergency fallback — edit nmap_profiles.yaml",
         "needs_root":  False,
         "ports":       "",
